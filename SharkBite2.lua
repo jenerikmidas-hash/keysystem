@@ -17,9 +17,6 @@ end
 -- 👇 YOUR MAIN SCRIPT CODE STARTS HERE 👇
 -------------------------------------------------------------------------------
 
-print(ProtectionConfig.HubName .. " Loaded Successfully!")
-
-
 -- ===============================================
 -- SERVICES AND GLOBAL SETTINGS
 -- ===============================================
@@ -46,6 +43,10 @@ local aimbotEnabled = false
 local boatEspEnabled = false
 local playerEspEnabled = false
 local fullBrightEnabled = false
+local flyEnabled = false
+local noclipEnabled = false
+local sharkTrackEnabled = false
+local playerTrackEnabled = false
 
 local tracked = {}
 local trackedBoats = {}
@@ -53,14 +54,22 @@ local trackedPlayers = {}
 local isMinimized = false
 
 -- Panel Size Settings
-local normalSize = UDim2.new(0, 390, 0, 590)
-local normalPos = UDim2.new(0.5, -195, 0.5, -295)
+local normalSize = UDim2.new(0, 600, 0, 450)
+local normalPos = UDim2.new(0.5, -300, 0.5, -225)
+
+local forceMouseUnlock = false
+local aimbotTargetShark = nil
+
+local flyBv = nil
+local flyGyro = nil
+local flySpeed = 50
 
 -- Original Lighting Backups
 local origAmbient = Lighting.Ambient
 local origOutdoorAmbient = Lighting.OutdoorAmbient
 local origClockTime = Lighting.ClockTime
 local origFogEnd = Lighting.FogEnd
+local origGlobalShadows = Lighting.GlobalShadows
 
 -- RGB Color Loop Helper Function
 local function getRainbowColor(speed)
@@ -222,6 +231,7 @@ mainCorner.Parent = mainFrame
 
 local mainStroke = Instance.new("UIStroke")
 mainStroke.Thickness = 2.5
+mainStroke.Color = Color3.fromRGB(180, 40, 40)
 mainStroke.Parent = mainFrame
 
 mainFrame.Parent = screenGui
@@ -230,6 +240,7 @@ screenGui.Parent = playerGui
 -- Top Bar UI
 local topBar = Instance.new("Frame")
 topBar.Size = UDim2.new(1, 0, 0, 38)
+topBar.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
 topBar.BorderSizePixel = 0
 topBar.ZIndex = 20
 topBar.Parent = mainFrame
@@ -241,6 +252,7 @@ topCorner.Parent = topBar
 local topFiller = Instance.new("Frame")
 topFiller.Size = UDim2.new(1, 0, 0, 10)
 topFiller.Position = UDim2.new(0, 0, 1, -10)
+topFiller.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
 topFiller.BorderSizePixel = 0
 topFiller.ZIndex = 20
 topFiller.Parent = topBar
@@ -423,12 +435,107 @@ end
 closeBtn.MouseButton1Click:Connect(createConfirmPopup)
 
 -- ===============================================
--- PILL TOGGLE FACTORY
+-- TAB SYSTEM AND LAYOUT
 -- ===============================================
-local function makePillRow(parent, yPos, labelText)
+local leftPanel = Instance.new("Frame")
+leftPanel.Size = UDim2.new(0, 150, 1, -38)
+leftPanel.Position = UDim2.new(0, 0, 0, 38)
+leftPanel.BackgroundColor3 = Color3.fromRGB(15, 15, 22)
+leftPanel.BorderSizePixel = 0
+leftPanel.ZIndex = 20
+leftPanel.Parent = mainFrame
+Instance.new("UICorner", leftPanel).CornerRadius = UDim.new(0, 8)
+
+local rightPanel = Instance.new("Frame")
+rightPanel.Size = UDim2.new(1, -155, 1, -43)
+rightPanel.Position = UDim2.new(0, 150, 0, 38)
+rightPanel.BackgroundTransparency = 1
+rightPanel.ZIndex = 20
+rightPanel.Parent = mainFrame
+
+local tabListLayout = Instance.new("UIListLayout")
+tabListLayout.Padding = UDim.new(0, 5)
+tabListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+tabListLayout.Parent = leftPanel
+local tabPad = Instance.new("UIPadding")
+tabPad.PaddingTop = UDim.new(0, 10)
+tabPad.PaddingLeft = UDim.new(0, 10)
+tabPad.PaddingRight = UDim.new(0, 10)
+tabPad.Parent = leftPanel
+
+local function createTabContent()
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.Size = UDim2.new(1, 0, 1, 0)
+    scroll.BackgroundTransparency = 1
+    scroll.ScrollBarThickness = 2
+    scroll.Visible = false
+    scroll.BorderSizePixel = 0
+    scroll.ZIndex = 11
+    scroll.Parent = rightPanel
+    
+    local l = Instance.new("UIListLayout")
+    l.Padding = UDim.new(0, 8)
+    l.SortOrder = Enum.SortOrder.LayoutOrder
+    l.Parent = scroll
+    local p = Instance.new("UIPadding")
+    p.PaddingTop = UDim.new(0, 10)
+    p.PaddingLeft = UDim.new(0, 5)
+    p.PaddingRight = UDim.new(0, 10)
+    p.Parent = scroll
+    
+    l:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        scroll.CanvasSize = UDim2.new(0, 0, 0, l.AbsoluteContentSize.Y + 20)
+    end)
+    return scroll
+end
+
+local sharkContent = createTabContent()
+local survContent = createTabContent()
+local setnContent = createTabContent()
+sharkContent.Visible = true
+local currentTab = sharkContent
+
+local function makeTabBtn(text, targetContent)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 35)
+    btn.BackgroundColor3 = targetContent == currentTab and Color3.fromRGB(40, 40, 55) or Color3.fromRGB(20, 20, 30)
+    btn.Text = text
+    btn.TextColor3 = targetContent == currentTab and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 160)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 13
+    btn.ZIndex = 21
+    btn.Parent = leftPanel
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    
+    btn.MouseButton1Click:Connect(function()
+        for _, child in ipairs(leftPanel:GetChildren()) do
+            if child:IsA("TextButton") then
+                child.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+                child.TextColor3 = Color3.fromRGB(150, 150, 160)
+            end
+        end
+        btn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        
+        sharkContent.Visible = false
+        survContent.Visible = false
+        setnContent.Visible = false
+        targetContent.Visible = true
+        currentTab = targetContent
+    end)
+    return btn
+end
+
+makeTabBtn("🦈 Shark", sharkContent)
+makeTabBtn("🏃 Survivor", survContent)
+makeTabBtn("⚙️ Settings", setnContent)
+
+-- ===============================================
+-- UI COMPONENT FACTORIES
+-- ===============================================
+local function makePillRow(parent, labelText)
     local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, -16, 0, 40)
-    row.Position = UDim2.new(0, 8, 0, yPos)
+    row.Size = UDim2.new(1, 0, 0, 40)
     row.BackgroundColor3 = Color3.fromRGB(18, 18, 26)
     row.BorderSizePixel = 0
     row.ZIndex = 11
@@ -450,7 +557,7 @@ local function makePillRow(parent, yPos, labelText)
     local pillBg = Instance.new("Frame")
     pillBg.Size = UDim2.new(0, 58, 0, 28)
     pillBg.Position = UDim2.new(1, -66, 0.5, -14)
-    pillBg.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+    pillBg.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
     pillBg.BorderSizePixel = 0
     pillBg.ZIndex = 12
     pillBg.Parent = row
@@ -475,20 +582,9 @@ local function makePillRow(parent, yPos, labelText)
     return { pillBg = pillBg, knob = knob, btn = btn, lbl = lbl }
 end
 
-local espPill = makePillRow(mainFrame, 46, "Shark Box ESP")
-local aimPill = makePillRow(mainFrame, 92, "Aimbot")
-local boatPill = makePillRow(mainFrame, 138, "Boats Box ESP")
-local playerPill = makePillRow(mainFrame, 184, "Players Box ESP")
--- ===============================================
--- ADDITIONAL FEATURE ROWS (FULLBRIGHT)
--- ===============================================
-local brightPill = makePillRow(mainFrame, 230, "Full Bright")
-
--- Action Button Row Factory
-local function makeActionRow(parent, yPos, labelText, btnText, callback)
+local function makeActionRow(parent, labelText, btnText, callback)
     local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, -16, 0, 40)
-    row.Position = UDim2.new(0, 8, 0, yPos)
+    row.Size = UDim2.new(1, 0, 0, 40)
     row.BackgroundColor3 = Color3.fromRGB(18, 18, 26)
     row.BorderSizePixel = 0
     row.ZIndex = 11
@@ -528,116 +624,35 @@ local function makeActionRow(parent, yPos, labelText, btnText, callback)
     return actBtn, bStroke
 end
 
--- Event Chest Teleport - DISABLED (Preserved Visually)
-local chestBtn, chestStroke = makeActionRow(mainFrame, 276, "1000 Teeth Chest", "DISABLED", function()
-    -- Kept completely empty for future developments
-end)
+-- ===============================================
+-- POPULATING TABS
+-- ===============================================
 
+-- SHARK TAB
+local espPill = makePillRow(sharkContent, "Shark Box ESP")
+local mousePill = makePillRow(sharkContent, "Force Mouse Unlock")
+local boatPill = makePillRow(sharkContent, "Boats Box ESP")
+local playerPill = makePillRow(sharkContent, "Players Box ESP")
+local sharkTrackPill = makePillRow(sharkContent, "Shark Track")
 
--- Manual Input and Reset Box Factory
-local function makeInputAndResetRow(parent, yPos, labelText, defaultValue, callback)
-    local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, -16, 0, 40)
-    row.Position = UDim2.new(0, 8, 0, yPos)
-    row.BackgroundColor3 = Color3.fromRGB(18, 18, 26)
-    row.BorderSizePixel = 0
-    row.ZIndex = 11
-    row.Parent = parent
-    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
-    
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, -160, 1, 0)
-    lbl.Position = UDim2.new(0, 15, 0, 0)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = labelText
-    lbl.TextColor3 = Color3.fromRGB(160, 160, 175)
-    lbl.TextSize = 13
-    lbl.Font = Enum.Font.Gotham
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.ZIndex = 12
-    lbl.Parent = row
-    
-    local boxBg = Instance.new("Frame")
-    boxBg.Size = UDim2.new(0, 54, 0, 28)
-    boxBg.Position = UDim2.new(1, -100, 0.5, -14)
-    boxBg.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-    boxBg.BorderSizePixel = 0
-    boxBg.ZIndex = 12
-    boxBg.Parent = row
-    Instance.new("UICorner", boxBg).CornerRadius = UDim.new(0, 6)
-    
-    local bStroke = Instance.new("UIStroke")
-    bStroke.Color = Color3.fromRGB(80, 80, 100)
-    bStroke.Thickness = 1
-    bStroke.Parent = boxBg
-    
-    local textBox = Instance.new("TextBox")
-    textBox.Size = UDim2.new(1, 0, 1, 0)
-    textBox.BackgroundTransparency = 1
-    textBox.Text = tostring(defaultValue)
-    textBox.TextColor3 = Color3.fromRGB(255, 230, 100)
-    textBox.TextSize = 13
-    textBox.Font = Enum.Font.GothamBold
-    textBox.ClearTextOnFocus = false
-    textBox.ZIndex = 13
-    textBox.Parent = boxBg
-    
-    local resetBtn = Instance.new("TextButton")
-    resetBtn.Size = UDim2.new(0, 36, 0, 28)
-    resetBtn.Position = UDim2.new(1, -42, 0.5, -14)
-    resetBtn.BackgroundColor3 = Color3.fromRGB(120, 30, 30)
-    resetBtn.Text = "RST"
-    resetBtn.TextColor3 = Color3.fromRGB(255, 220, 220)
-    resetBtn.TextSize = 11
-    resetBtn.Font = Enum.Font.GothamBold
-    resetBtn.ZIndex = 13
-    resetBtn.Parent = row
-    Instance.new("UICorner", resetBtn).CornerRadius = UDim.new(0, 6)
-    
-    textBox.FocusLost:Connect(function()
-        local val = tonumber(textBox.Text)
-        if val then 
-            callback(val) 
-        else 
-            textBox.Text = tostring(defaultValue) 
-        end
-    end)
-    
-    resetBtn.MouseButton1Click:Connect(function()
-        textBox.Text = tostring(defaultValue)
-        callback(defaultValue)
-    end)
-end
-
-
-local divider = Instance.new("Frame")
-divider.Size = UDim2.new(1,-16,0,1)
-divider.Position = UDim2.new(0,8,0,320)
-divider.BackgroundColor3 = Color3.fromRGB(70,70,70)
-divider.BorderSizePixel = 0
-divider.Parent = mainFrame
-
--- PANEL LIST LABELS
 local secLbl = Instance.new("TextLabel")
-secLbl.Size = UDim2.new(1, -16, 0, 20)
-secLbl.Position = UDim2.new(0, 8, 0, 330)
+secLbl.Size = UDim2.new(1, 0, 0, 20)
 secLbl.BackgroundTransparency = 1
-secLbl.Text = "DETECTED SHARK PLAYERS"
+secLbl.Text = " DETECTED SHARK PLAYERS"
 secLbl.TextColor3 = Color3.fromRGB(255, 100, 100)
 secLbl.TextSize = 10
 secLbl.Font = Enum.Font.GothamBold
 secLbl.TextXAlignment = Enum.TextXAlignment.Left
 secLbl.ZIndex = 11
-secLbl.Parent = mainFrame
+secLbl.Parent = sharkContent
 
 local scrollFrame = Instance.new("ScrollingFrame")
-scrollFrame.Size = UDim2.new(1, -16, 1, -360)
-scrollFrame.Position = UDim2.new(0, 8, 0, 352)
+scrollFrame.Size = UDim2.new(1, 0, 0, 220)
 scrollFrame.BackgroundColor3 = Color3.fromRGB(8, 8, 12)
 scrollFrame.BorderSizePixel = 0
 scrollFrame.ScrollBarThickness = 4
 scrollFrame.ZIndex = 11
-scrollFrame.Parent = mainFrame
+scrollFrame.Parent = sharkContent
 Instance.new("UICorner", scrollFrame).CornerRadius = UDim.new(0, 8)
 
 local listLayout = Instance.new("UIListLayout")
@@ -654,6 +669,127 @@ listPad.Parent = scrollFrame
 listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
     scrollFrame.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 12)
 end)
+
+-- SURVIVOR TAB
+local playerTrackPill = makePillRow(survContent, "Player Track")
+local aimPill = makePillRow(survContent, "Aimbot")
+local flyPill = makePillRow(survContent, "Fly")
+local noclipPill = makePillRow(survContent, "Noclip")
+
+local heliBtn, heliStroke = makeActionRow(survContent, "Teleport Helicopter", "TELEPORT", function()
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    local floor = nil
+    pcall(function() floor = workspace.Chinook.Collisions.Interior.Floor end)
+    if floor and floor:IsA("BasePart") then
+        char.HumanoidRootPart.CFrame = floor.CFrame + Vector3.new(0, 4, 0)
+    end
+end)
+
+local chestBtn, chestStroke = makeActionRow(survContent, "Teleport Chest", "TELEPORT", function()
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    local floor = nil
+    pcall(function() floor = workspace.Chest.Chest.Main end)
+    if floor and floor:IsA("BasePart") then
+        char.HumanoidRootPart.CFrame = floor.CFrame * CFrame.new(4, 2, 0)
+    end
+end)
+
+-- SETTINGS TAB
+local brightPill = makePillRow(setnContent, "Full Bright")
+
+local flySpeedRow = Instance.new("Frame")
+flySpeedRow.Size = UDim2.new(1, 0, 0, 60)
+flySpeedRow.BackgroundColor3 = Color3.fromRGB(18, 18, 26)
+flySpeedRow.BorderSizePixel = 0
+flySpeedRow.ZIndex = 11
+flySpeedRow.Parent = setnContent
+Instance.new("UICorner", flySpeedRow).CornerRadius = UDim.new(0, 8)
+
+local fsLbl = Instance.new("TextLabel")
+fsLbl.Size = UDim2.new(1, -20, 0, 20)
+fsLbl.Position = UDim2.new(0, 15, 0, 10)
+fsLbl.BackgroundTransparency = 1
+fsLbl.Text = "Fly Speed: 50"
+fsLbl.TextColor3 = Color3.fromRGB(160, 160, 175)
+fsLbl.TextSize = 13
+fsLbl.Font = Enum.Font.Gotham
+fsLbl.TextXAlignment = Enum.TextXAlignment.Left
+fsLbl.ZIndex = 12
+fsLbl.Parent = flySpeedRow
+
+local fsSliderBg = Instance.new("Frame")
+fsSliderBg.Size = UDim2.new(1, -30, 0, 6)
+fsSliderBg.Position = UDim2.new(0, 15, 0, 38)
+fsSliderBg.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+fsSliderBg.ZIndex = 12
+fsSliderBg.Parent = flySpeedRow
+Instance.new("UICorner", fsSliderBg).CornerRadius = UDim.new(1, 0)
+
+local fsSliderFill = Instance.new("Frame")
+fsSliderFill.Size = UDim2.new(0.25, 0, 1, 0)
+fsSliderFill.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+fsSliderFill.ZIndex = 13
+fsSliderFill.Parent = fsSliderBg
+Instance.new("UICorner", fsSliderFill).CornerRadius = UDim.new(1, 0)
+
+local fsSliderKnob = Instance.new("Frame")
+fsSliderKnob.Size = UDim2.new(0, 16, 0, 16)
+fsSliderKnob.Position = UDim2.new(0.25, -8, 0.5, -8)
+fsSliderKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+fsSliderKnob.ZIndex = 14
+fsSliderKnob.Parent = fsSliderBg
+Instance.new("UICorner", fsSliderKnob).CornerRadius = UDim.new(1, 0)
+
+local fsBtn = Instance.new("TextButton")
+fsBtn.Size = UDim2.new(1, 0, 1, 0)
+fsBtn.BackgroundTransparency = 1
+fsBtn.Text = ""
+fsBtn.ZIndex = 15
+fsBtn.Parent = fsSliderBg
+
+local sliderDragging = false
+fsBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        sliderDragging = true
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        sliderDragging = false
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if sliderDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local relativeX = math.clamp(input.Position.X - fsSliderBg.AbsolutePosition.X, 0, fsSliderBg.AbsoluteSize.X)
+        local ratio = relativeX / fsSliderBg.AbsoluteSize.X
+        fsSliderFill.Size = UDim2.new(ratio, 0, 1, 0)
+        fsSliderKnob.Position = UDim2.new(ratio, -8, 0.5, -8)
+        flySpeed = math.floor(10 + (ratio * 190)) -- Range: 10 to 200
+        fsLbl.Text = "Fly Speed: " .. tostring(flySpeed)
+    end
+end)
+
+local authorLbl = Instance.new("TextLabel")
+authorLbl.Size = UDim2.new(1, 0, 0, 30)
+authorLbl.BackgroundTransparency = 1
+authorLbl.Text = "Creator: MidasHUB"
+authorLbl.TextColor3 = Color3.fromRGB(100, 100, 120)
+authorLbl.TextSize = 13
+authorLbl.Font = Enum.Font.GothamBold
+authorLbl.ZIndex = 11
+authorLbl.Parent = setnContent
+
+local authorSubLbl = Instance.new("TextLabel")
+authorSubLbl.Size = UDim2.new(1, 0, 0, 30)
+authorSubLbl.BackgroundTransparency = 1
+authorSubLbl.Text = "If you like the script, please like it on rscripts.net"
+authorSubLbl.TextColor3 = Color3.fromRGB(100, 100, 120)
+authorSubLbl.TextSize = 11
+authorSubLbl.Font = Enum.Font.Gotham
+authorSubLbl.ZIndex = 11
+authorSubLbl.Parent = setnContent
 
 -- ===============================================
 -- ALGORITHMIC METHODS
@@ -729,61 +865,15 @@ local function createSelectionBox(model, color)
     return box
 end
 
-local function createBillboard(model, owner)
-    local prim = getPrimary(model)
-    if not prim then 
-        return nil 
-    end
-    
-    local bb = Instance.new("BillboardGui")
-    bb.Name = "_SharkBB"
-    bb.Size = UDim2.new(0, 180, 0, 64)
-    bb.StudsOffset = Vector3.new(2, 4, 0)
-    bb.AlwaysOnTop = true
-    bb.Adornee = prim
-    bb.Parent = workspace
-    
-    local sharkLbl = Instance.new("TextLabel")
-    sharkLbl.Size = UDim2.new(1, 0, 0, 28)
-    sharkLbl.BackgroundTransparency = 1
-    sharkLbl.Text = "🦈 " .. model.Name
-    sharkLbl.TextColor3 = Color3.fromRGB(255, 80, 80)
-    sharkLbl.TextSize = 14
-    sharkLbl.Font = Enum.Font.GothamBold
-    sharkLbl.Parent = bb
-    
-    local ownerBbLbl = Instance.new("TextLabel")
-    ownerBbLbl.Size = UDim2.new(1, 0, 0, 20)
-    ownerBbLbl.Position = UDim2.new(0, 0, 0, 28)
-    ownerBbLbl.BackgroundTransparency = 1
-    ownerBbLbl.Text = owner == "AI" and "🤖 AI" or ("👤 " .. owner.Name)
-    ownerBbLbl.TextColor3 = Color3.fromRGB(255, 210, 210)
-    ownerBbLbl.TextSize = 11
-    ownerBbLbl.Font = Enum.Font.Gotham
-    ownerBbLbl.Parent = bb
-    
-    local distBbLbl = Instance.new("TextLabel")
-    distBbLbl.Size = UDim2.new(1, 0, 0, 16)
-    distBbLbl.Position = UDim2.new(0, 0, 0, 48)
-    distBbLbl.BackgroundTransparency = 1
-    distBbLbl.TextColor3 = Color3.fromRGB(200, 200, 200)
-    distBbLbl.TextSize = 10
-    distBbLbl.Font = Enum.Font.Gotham
-    distBbLbl.Parent = bb
-    
-    return bb, sharkLbl, distBbLbl, ownerBbLbl
-end
-
 local function trackModel(model)
     if tracked[model] then 
         return 
     end
     local owner = getOwner(model)
     
-    local selBox, bb, sharkBbLbl, distBbLbl, ownerBbLbl
+    local selBox
     if boxEspEnabled then
         selBox = createSelectionBox(model, BOX_COLOR)
-        bb, sharkBbLbl, distBbLbl, ownerBbLbl = createBillboard(model, owner)
     end
     
     local card = Instance.new("Frame")
@@ -816,7 +906,7 @@ local function trackModel(model)
     ibl.TextSize = 24
     ibl.ZIndex = 14
     ibl.Parent = iconBox
-
+    
     local modelNameLbl = Instance.new("TextLabel")
     modelNameLbl.Size = UDim2.new(1, -150, 0, 22)
     modelNameLbl.Position = UDim2.new(0, 68, 0, 10)
@@ -844,7 +934,7 @@ local function trackModel(model)
     ownerCardLbl.Parent = card
     
     local barBg = Instance.new("Frame")
-    barBg.Size = UDim2.new(1, -150, 0, 8)
+    barBg.Size = UDim2.new(1, -150, 0, 6)
     barBg.Position = UDim2.new(0, 68, 0, 50)
     barBg.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
     barBg.ZIndex = 13
@@ -859,7 +949,7 @@ local function trackModel(model)
     Instance.new("UICorner", barFill).CornerRadius = UDim.new(1, 0)
     
     local distCardLbl = Instance.new("TextLabel")
-    distCardLbl.Size = UDim2.new(0, 100, 0, 14)
+    distCardLbl.Size = UDim2.new(0, 140, 0, 14)
     distCardLbl.Position = UDim2.new(0, 68, 0, 60)
     distCardLbl.BackgroundTransparency = 1
     distCardLbl.Text = "-- studs"
@@ -870,27 +960,42 @@ local function trackModel(model)
     distCardLbl.ZIndex = 13
     distCardLbl.Parent = card
     
-    local boxBadgeBg = Instance.new("Frame")
-    boxBadgeBg.Size = UDim2.new(0, 64, 0, 24)
-    boxBadgeBg.Position = UDim2.new(1, -74, 0.5, -12)
-    boxBadgeBg.BackgroundColor3 = Color3.fromRGB(70, 28, 28)
-    boxBadgeBg.ZIndex = 13
-    boxBadgeBg.Parent = card
-    Instance.new("UICorner", boxBadgeBg).CornerRadius = UDim.new(0, 6)
+    local lockBtn = Instance.new("TextButton")
+    lockBtn.Size = UDim2.new(0, 70, 0, 24)
+    lockBtn.Position = UDim2.new(1, -80, 0.5, -12)
+    lockBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    lockBtn.Text = "AIM LOCK"
+    lockBtn.TextColor3 = Color3.fromRGB(200, 200, 220)
+    lockBtn.TextSize = 9
+    lockBtn.Font = Enum.Font.GothamBold
+    lockBtn.ZIndex = 13
+    lockBtn.Parent = card
+    Instance.new("UICorner", lockBtn).CornerRadius = UDim.new(0, 6)
     
-    local boxBadgeLbl = Instance.new("TextLabel")
-    boxBadgeLbl.Size = UDim2.new(1, 0, 1, 0)
-    boxBadgeLbl.BackgroundTransparency = 1
-    boxBadgeLbl.Text = "ESP X"
-    boxBadgeLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-    boxBadgeLbl.TextSize = 10
-    boxBadgeLbl.Font = Enum.Font.GothamBold
-    boxBadgeLbl.ZIndex = 14
-    boxBadgeLbl.Parent = boxBadgeBg
+    local lockStroke = Instance.new("UIStroke")
+    lockStroke.Thickness = 1
+    lockStroke.Color = Color3.fromRGB(80, 80, 100)
+    lockStroke.Parent = lockBtn
+    
+    lockBtn.MouseButton1Click:Connect(function()
+        if aimbotTargetShark == model then
+            aimbotTargetShark = nil
+            lockStroke.Color = Color3.fromRGB(80, 80, 100)
+            lockBtn.TextColor3 = Color3.fromRGB(200, 200, 220)
+        else
+            aimbotTargetShark = model
+            for _, d in pairs(tracked) do
+                if d.lockStroke then d.lockStroke.Color = Color3.fromRGB(80, 80, 100) end
+                if d.lockBtn then d.lockBtn.TextColor3 = Color3.fromRGB(200, 200, 220) end
+            end
+            lockStroke.Color = Color3.fromRGB(255, 50, 50)
+            lockBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
+        end
+    end)
     
     tracked[model] = {
-        selBox = selBox, billboard = bb, sharkBbLbl = sharkBbLbl, distBbLbl = distBbLbl, ownerBbLbl = ownerBbLbl,
-        card = card, barFill = barFill, distCardLbl = distCardLbl, ownerCardLbl = ownerCardLbl, boxBadgeBg = boxBadgeBg, boxBadgeLbl = boxBadgeLbl
+        selBox = selBox, card = card, distCardLbl = distCardLbl, 
+        ownerCardLbl = ownerCardLbl, lockStroke = lockStroke, lockBtn = lockBtn
     }
 end
 
@@ -902,11 +1007,11 @@ local function untrackModel(model)
     if d.selBox then 
         d.selBox:Destroy() 
     end
-    if d.billboard then 
-        d.billboard:Destroy() 
-    end
     if d.card then 
         d.card:Destroy() 
+    end
+    if aimbotTargetShark == model then
+        aimbotTargetShark = nil
     end
     tracked[model] = nil
 end
@@ -934,7 +1039,9 @@ end
 local function updatePillVisual(pill, state)
     local targetPos = state and UDim2.new(1, -25, 0.5, -11) or UDim2.new(0, 3, 0.5, -11)
     local targetColor = state and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 165)
+    local targetBgColor = state and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(200, 50, 50)
     PlayerTweenService:Create(pill.knob, TweenInfo.new(0.2), {Position = targetPos}):Play()
+    PlayerTweenService:Create(pill.pillBg, TweenInfo.new(0.2), {BackgroundColor3 = targetBgColor}):Play()
     pill.lbl.TextColor3 = targetColor
 end
 
@@ -949,22 +1056,11 @@ espPill.btn.MouseButton1Click:Connect(function()
             if not data.selBox then 
                 data.selBox = createSelectionBox(model, BOX_COLOR) 
             end
-            if not data.billboard then 
-                data.billboard, data.sharkBbLbl, data.distBbLbl, data.ownerBbLbl = createBillboard(model, getOwner(model)) 
-            end
-            data.boxBadgeBg.BackgroundColor3 = Color3.fromRGB(22, 120, 22)
-            data.boxBadgeLbl.Text = "ESP V"
         else
             if data.selBox then 
                 data.selBox:Destroy()
                 data.selBox = nil 
             end
-            if data.billboard then 
-                data.billboard:Destroy()
-                data.billboard = nil 
-            end
-            data.boxBadgeBg.BackgroundColor3 = Color3.fromRGB(70, 28, 28)
-            data.boxBadgeLbl.Text = "ESP X"
         end
     end
 end)
@@ -1013,6 +1109,7 @@ brightPill.btn.MouseButton1Click:Connect(function()
         Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
         Lighting.ClockTime = 12
         Lighting.FogEnd = 999999
+        Lighting.GlobalShadows = false
         -- Clear sky fog filters safely
         for _, fx in ipairs(Lighting:GetDescendants()) do
             if fx:IsA("Atmosphere") or fx:IsA("Sky") or fx:IsA("Clouds") then
@@ -1024,7 +1121,53 @@ brightPill.btn.MouseButton1Click:Connect(function()
         Lighting.OutdoorAmbient = origOutdoorAmbient
         Lighting.ClockTime = origClockTime
         Lighting.FogEnd = origFogEnd
+        Lighting.GlobalShadows = origGlobalShadows
     end
+end)
+
+mousePill.btn.MouseButton1Click:Connect(function()
+    forceMouseUnlock = not forceMouseUnlock
+    updatePillVisual(mousePill, forceMouseUnlock)
+end)
+
+flyPill.btn.MouseButton1Click:Connect(function()
+    flyEnabled = not flyEnabled
+    updatePillVisual(flyPill, flyEnabled)
+    
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    local hrp = char.HumanoidRootPart
+    
+    if flyEnabled then
+        flyBv = Instance.new("BodyVelocity")
+        flyBv.Velocity = Vector3.new(0, 0, 0)
+        flyBv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        flyBv.Parent = hrp
+        
+        flyGyro = Instance.new("BodyGyro")
+        flyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+        flyGyro.P = 10000
+        flyGyro.D = 50
+        flyGyro.Parent = hrp
+    else
+        if flyBv then flyBv:Destroy() end
+        if flyGyro then flyGyro:Destroy() end
+    end
+end)
+
+noclipPill.btn.MouseButton1Click:Connect(function()
+    noclipEnabled = not noclipEnabled
+    updatePillVisual(noclipPill, noclipEnabled)
+end)
+
+sharkTrackPill.btn.MouseButton1Click:Connect(function()
+    sharkTrackEnabled = not sharkTrackEnabled
+    updatePillVisual(sharkTrackPill, sharkTrackEnabled)
+end)
+
+playerTrackPill.btn.MouseButton1Click:Connect(function()
+    playerTrackEnabled = not playerTrackEnabled
+    updatePillVisual(playerTrackPill, playerTrackEnabled)
 end)
 
 -- Folder Track Event Connections
@@ -1061,9 +1204,45 @@ end
 -- ===============================================
 -- CORE RGB ENGINE AND SYSTEM LOOP
 -- ===============================================
+
+local tracers = {}
+local function updateTracer(id, p1, p2, color)
+    local tracer = tracers[id]
+    if not tracer then
+        tracer = Instance.new("CylinderHandleAdornment")
+        tracer.Name = "Tracer_" .. id
+        tracer.Radius = 0.15
+        tracer.AlwaysOnTop = true
+        tracer.ZIndex = 10
+        tracer.Adornee = workspace.Terrain
+        tracer.Parent = screenGui
+        tracers[id] = tracer
+    end
+    
+    if p1 and p2 then
+        local dist = (p2 - p1).Magnitude
+        tracer.CFrame = CFrame.lookAt(p1, p2) * CFrame.new(0, 0, -dist/2)
+        tracer.Height = dist
+        tracer.Color3 = color
+        tracer.Visible = true
+    else
+        tracer.Visible = false
+    end
+end
+
+RunService.Stepped:Connect(function()
+    if noclipEnabled and player.Character then
+        for _, part in ipairs(player.Character:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
+    end
+end)
+
 RunService.RenderStepped:Connect(function()
-    local rainbowColor = getRainbowColor(0.5)
-    local slowRainbowColor = getRainbowColor(0.15) -- AÇILIŞ PANELİ İÇİN YAVAŞ, AKICI VE GÖZ YORMAYAN ÖZEL HIZ
+    local rainbowColor = getRainbowColor(0.2)
+    local slowRainbowColor = getRainbowColor(0.1) -- AÇILIŞ PANELİ İÇİN YAVAŞ, AKICI VE GÖZ YORMAYAN ÖZEL HIZ
     
     if introFrame and introFrame.Parent then
         loadBarFill.BackgroundColor3 = rainbowColor
@@ -1075,19 +1254,37 @@ RunService.RenderStepped:Connect(function()
             introCenterStroke.Color = slowRainbowColor
         end
     end
+
+
+    if forceMouseUnlock then
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
+    end
     
-    if mainFrame.Visible then
-        mainStroke.Color = rainbowColor
-        topBar.BackgroundColor3 = rainbowColor
-        topFiller.BackgroundColor3 = rainbowColor
-        scrollFrame.ScrollBarImageColor3 = rainbowColor
-        readyStroke.Color = rainbowColor
+    if flyEnabled and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and flyBv and flyGyro then
+        local cam = workspace.CurrentCamera
+        local speed = flySpeed
+        local moveVec = Vector3.new(0,0,0)
         
-        espPill.pillBg.BackgroundColor3 = boxEspEnabled and rainbowColor or Color3.fromRGB(45, 45, 55)
-        aimPill.pillBg.BackgroundColor3 = aimbotEnabled and rainbowColor or Color3.fromRGB(45, 45, 55)
-        boatPill.pillBg.BackgroundColor3 = boatEspEnabled and rainbowColor or Color3.fromRGB(45, 45, 55)
-        playerPill.pillBg.BackgroundColor3 = playerEspEnabled and rainbowColor or Color3.fromRGB(45, 45, 55)
-        brightPill.pillBg.BackgroundColor3 = fullBrightEnabled and rainbowColor or Color3.fromRGB(45, 45, 55)
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            moveVec = moveVec + cam.CFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            moveVec = moveVec - cam.CFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            moveVec = moveVec - cam.CFrame.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            moveVec = moveVec + cam.CFrame.RightVector
+        end
+        
+        if moveVec.Magnitude > 0 then
+            moveVec = moveVec.Unit * speed
+        end
+        
+        flyBv.Velocity = moveVec
+        flyGyro.CFrame = cam.CFrame
     end
 
     -- Render Distance Optimization Loop Fix
@@ -1096,6 +1293,7 @@ RunService.RenderStepped:Connect(function()
         Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
         Lighting.ClockTime = 12
         Lighting.FogEnd = 999999
+        Lighting.GlobalShadows = false
         for _, fx in ipairs(Lighting:GetDescendants()) do
             if fx:IsA("Atmosphere") then
                 fx:Destroy()
@@ -1105,13 +1303,7 @@ RunService.RenderStepped:Connect(function()
 
     for model, data in pairs(tracked) do
         local dist = getDistance(model)
-        local ratio, bColor = getBarData(dist)
-        data.barFill.Size = UDim2.new(ratio, 0, 1, 0)
-        data.barFill.BackgroundColor3 = bColor
         data.distCardLbl.Text = tostring(dist) .. " studs"
-        if data.distBbLbl then 
-            data.distBbLbl.Text = "📍 " .. tostring(dist) .. " studs" 
-        end
     end
     
     if playerEspEnabled then
@@ -1131,13 +1323,43 @@ RunService.RenderStepped:Connect(function()
             end 
         end
     end
+
+    -- TRACERS LOGIC
+    local localHrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    
+    for _, t in pairs(tracers) do
+        t.Visible = false
+    end
+    
+    if localHrp then
+        if sharkTrackEnabled then
+            for model, _ in pairs(tracked) do
+                local tHrp = getPrimary(model)
+                if tHrp then
+                    updateTracer("Shark_"..model.Name, localHrp.Position, tHrp.Position, Color3.fromRGB(255, 0, 0))
+                end
+            end
+        end
+        
+        if playerTrackEnabled then
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                    updateTracer("Player_"..p.Name, localHrp.Position, p.Character.HumanoidRootPart.Position, Color3.fromRGB(0, 255, 0))
+                end
+            end
+        end
+    end
 end)
 
 -- Aimbot Camera Tracking Thread
 RunService:UnbindFromRenderStep("SharkAimbotTask")
 RunService:BindToRenderStep("SharkAimbotTask", Enum.RenderPriority.Camera.Value + 1, function()
     if aimbotEnabled and player.Character and player.Character:FindFirstChildOfClass("Tool") then
-        local targetShark = getClosestShark()
+        local targetShark = aimbotTargetShark
+        if not targetShark or not getPrimary(targetShark) then
+            targetShark = getClosestShark()
+        end
+        
         if targetShark and getPrimary(targetShark) then
             workspace.CurrentCamera.CFrame = CFrame.lookAt(workspace.CurrentCamera.CFrame.Position, getPrimary(targetShark).Position)
         end

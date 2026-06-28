@@ -1,3 +1,26 @@
+local ProtectionConfig = {
+
+    SecretKey = "31",
+    
+    HubName = "MIDASHUB"
+}
+
+if not _G[ProtectionConfig.SecretKey] then
+    local player = game:GetService("Players").LocalPlayer
+    if player then
+        player:Kick("\n🛡️ Unauthorized Execution 🛡️\n\nPlease use the official Key System to run " .. ProtectionConfig.HubName)
+    end
+    return
+end
+
+-------------------------------------------------------------------------------
+-- 👇 YOUR MAIN SCRIPT CODE STARTS HERE 👇
+-------------------------------------------------------------------------------
+
+-- ===============================================
+-- SERVICES AND GLOBAL SETTINGS
+-- ===============================================
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
